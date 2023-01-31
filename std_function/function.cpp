@@ -71,7 +71,7 @@ public:
         m_callable_buf = new Callable_impl<FuncObject>(std::move(func_object));
     }
 
-    template<details::IsSmallFunc FuncObject> 
+    template<typename FuncObject> requires details::IsSmallFunc<Callable_impl<FuncObject>>
     constexpr Func(FuncObject func_object) {
         m_callable_buf = new (m_local_callable) Callable_impl<FuncObject>(std::move(func_object));
     }
@@ -90,7 +90,7 @@ public:
         swap(other);
     }
 
-    template<details::IsSmallFunc FuncObject> 
+    template<typename FuncObject> requires details::IsSmallFunc<Callable_impl<FuncObject>>
     constexpr auto& operator=(FuncObject func_object) {
         reset();
         m_callable_buf = new (m_local_callable) Callable_impl<FuncObject>(std::move(func_object));
@@ -298,7 +298,7 @@ public:
     }
 
     static std::unique_ptr<MemberFunctionAndThrowTest> test_fabric(const size_t num) {
-        std::cerr << num << '\n';
+        (void)num;
         return std::make_unique<MemberFunctionAndThrowTest>();
     }
 private:
