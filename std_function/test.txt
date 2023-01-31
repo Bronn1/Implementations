@@ -17,9 +17,10 @@ concept IsInvocable = requires(T t, ArgTypes... args ) {
 };
 
 inline static constexpr size_t kSmallFuncOptMaxSize = 24;
+//inline static constexpr size_t kSmallFuncByteSize = sizeof(std::byte) * kSmallFuncOptMaxSize;
 
 template<typename F>
-concept IsSmallFunc = sizeof(F) <= kSmallFuncOptMaxSize;
+concept IsSmallFunc = sizeof(F) <= kSmallFuncOptMaxSize - 1;
 }
 
 template<typename T>
@@ -60,7 +61,9 @@ class Func<RetType (ArgTypes...)> {
     using local_callable_buf_type = std::byte[details::kSmallFuncOptMaxSize];
 public:
   // noexcept(_Handler<_Functor>::template _S_nothrow_init<_Functor>())
-    Func() = default;
+    Func() {
+        std::memset(&m_local_callable, 0, sizeof(std::byte) * details::kSmallFuncOptMaxSize);
+    }
 
     ~Func() {
         reset();
@@ -73,7 +76,7 @@ public:
 
     template<details::IsSmallFunc FuncObject> 
     constexpr Func(FuncObject func_object) {
-        m_callable_buf = new (m_local_callable) Callable_impl<FuncObject>(std::move(func_object));
+        m_callable_buf = new (m_local_callable) Callable_impl<FuncObject>(std::move(func_object));   
     }
 
     Func(const Func& other) {
@@ -93,6 +96,7 @@ public:
     template<details::IsSmallFunc FuncObject> 
     constexpr auto& operator=(FuncObject func_object) {
         reset();
+        std::cerr << "Z SOSY XYu\n" << sizeof(FuncObject);
         m_callable_buf = new (m_local_callable) Callable_impl<FuncObject>(std::move(func_object));
         
         return *this;
