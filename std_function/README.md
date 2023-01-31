@@ -1,5 +1,5 @@
 ## Implementations
-Simplified implementation of std::function with small object optimization. Easy to understand.
+Simplified implementation of std::function with small buffer optimization. Easy to understand.
 
 Tested out with gtest.
 
