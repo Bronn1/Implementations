@@ -1,0 +1,6 @@
+
+std_function/function.exe
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+.vscode/tasks.json
+*.exe

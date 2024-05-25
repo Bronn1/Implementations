@@ -3,7 +3,7 @@
 #include <cstring>
 
 // for tests
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include <vector>
 #include <functional>
 #include <numeric>
