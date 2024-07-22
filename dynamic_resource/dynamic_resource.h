@@ -4,7 +4,8 @@
 #include <filesystem>
 #include <concepts>
 #include <thread>
-#include  <chrono>
+#include <chrono>
+#include <cstring>
 
 using namespace std::literals;
 // класс содержить dataPtr и versions
@@ -16,9 +17,6 @@ constexpr size_t DYNAMIC_RESOURCE_VERSIONS_MAX_SIZE = 5;
 constexpr std::chrono::milliseconds UPDATE_RESOURCE_EVERY_X_MS = 5000ms;
 
 namespace details {
-
-//template<typename T
-//concept
 /*
 * Intented to work with one writer and many readers
 * Prob need some extra synchronization for many writters
@@ -28,7 +26,7 @@ class Atomic_holder {
 public:
     using data_ptr = T*;
     using value = T;
-    Atomic_holder(data_ptr ptr) {
+    Atomic_holder(data_ptr ptr) noexcept {
         m_ptr.store(ptr, std::memory_order_relaxed);
     }
 
@@ -61,7 +59,7 @@ Atomic_holder<T> make_holder(Args... args) {
     return Atomic_holder{new T{std::forward<Args>(args)...}};
 }
 
-// most likely unnecessary raw ptr usage but for sake of learning purposes
+// most likely unnecessary raw ptr usage but for sake of the learning process
 template<typename T, typename... Args>
  [[nodiscard]] T* make_raw_ptr_should_delete_manually(Args... args) {
     return new T{std::forward<Args>(args)...};
@@ -74,6 +72,17 @@ template<typename T>
 concept HasConstGetDataMethod = requires(T& t) {
     { t.get_data() } -> IsConst;
 };
+
+class MissingFileException : std::exception {
+public:
+    explicit MissingFileException(std::string&& err_msg) : m_err{std::move(err_msg)} {}
+    inline const char* what() const noexcept override {
+            return m_err.c_str();
+    }
+private:
+    const std::string m_err;
+};
+
 }
 
 struct Resource_info {
@@ -86,12 +95,11 @@ class Dynamic_resource {
 public:
     using data_ptr = T*;
     using atomic_ptr_t =  details::Atomic_holder<T>;
+    // use strategy for inner resource
     Dynamic_resource(std::filesystem::path filepath, std::ostream& logger = std::cerr) : m_cur_resource_ptr{details::make_holder<T>(filepath)}, m_ostream_like_logger{logger} {
-
-        // TODO check if file exists
         m_res_info.filepath = filepath;
         m_res_info.file_last_write_time = fs::last_write_time(m_res_info.filepath);
-        m_resource_updater  = std::thread(&Dynamic_resource::dynamic_file_checker, this);
+        m_resource_updater  = std::thread(&Dynamic_resource::dynamic_resource_updater, this);
         m_ostream_like_logger << m_res_info.file_last_write_time << '\n';
     }
 
@@ -99,7 +107,7 @@ public:
     Dynamic_resource(Dynamic_resource&&) = delete;
 
     const T::value& get_data() const {
-        return m_cur_resource_ptr.get_ptr()-> get_data();
+        return m_cur_resource_ptr.get_ptr()->get_data();
     }
 
     ~Dynamic_resource() {
@@ -109,25 +117,30 @@ public:
         }
     }
 private:
-    void dynamic_file_checker() {
+    void dynamic_resource_updater() {
         while(true) {
             std::this_thread::sleep_for(UPDATE_RESOURCE_EVERY_X_MS);
             if (m_is_finished.load(std::memory_order_relaxed)) {
                 m_ostream_like_logger << "Dynamic File updater worker has stopped\n";
                 return;
             }
-            auto current_last_write_time = fs::last_write_time(m_res_info.filepath);
+            std::error_code err;
+            auto current_last_write_time = fs::last_write_time(m_res_info.filepath, err);
+            if (err) {
+                m_ostream_like_logger << "Cannot get last write time, resource will not be updated: " <<  err.message() << '\n';
+            }
             if (current_last_write_time != m_res_info.file_last_write_time) {
                 m_ostream_like_logger << "Dynamic file has changed, new version from " << current_last_write_time << " . Resource wil be updated...\n";
                 try {
                     auto res_new_version = details::make_raw_ptr_should_delete_manually<T>(m_res_info.filepath);
                     auto old_atomic_ptr = m_cur_resource_ptr.exchange(res_new_version);
-                    m_ostream_like_logger << "Resource has been successfully updated\n";
                 } catch(...) {
                     m_ostream_like_logger << "Error occured during resource construction. ";
                     handle_exception();
                 }
-            
+
+                m_res_info.file_last_write_time = current_last_write_time;
+                m_ostream_like_logger << "Resource has been successfully updated\n";
             }
         }
     }
