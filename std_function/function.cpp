@@ -28,15 +28,15 @@ class Func;
 template<typename RetType, typename ... ArgTypes>
 class Func<RetType (ArgTypes...)> {
     // type erasure
-    class Callable_interface {
+    class ICallable {
     public:
         virtual RetType call(ArgTypes...)  = 0;
-        virtual Callable_interface* clone_allocate() const = 0;
-        virtual ~Callable_interface() = default;
+        virtual ICallable* clone_allocate() const = 0;
+        virtual ~ICallable() = default;
     };
 
     template<typename FuncObject> requires details::IsInvocable<FuncObject, RetType, ArgTypes...> 
-    class Callable_impl final : public  Callable_interface {
+    class Callable_impl final : public  ICallable {
     public:
         using callable_type = FuncObject;
         Callable_impl(FuncObject callable) : m_callable{std::move(callable)} {
@@ -44,7 +44,7 @@ class Func<RetType (ArgTypes...)> {
 
         ~Callable_impl() = default;
         
-        Callable_interface* clone_allocate() const override {
+        ICallable* clone_allocate() const override {
             return new Callable_impl(*this);
         }
 
@@ -56,7 +56,7 @@ class Func<RetType (ArgTypes...)> {
         FuncObject m_callable;
     };
 
-    using callable_ptr = Callable_interface*;
+    using callable_ptr = ICallable*;
     using local_callable_buf_type = std::byte[details::kSmallFuncOptMaxSize];
 public:
   // noexcept(_Handler<_Functor>::template _S_nothrow_init<_Functor>())
@@ -87,7 +87,13 @@ public:
     }
 
     Func(Func&& other) noexcept {
-        swap(other);
+        if (other.is_local_buf()) {
+            std::memmove(&m_local_callable, &other.m_local_callable, details::kSmallFuncOptMaxSize);
+            m_callable_buf = reinterpret_cast<callable_ptr>(m_local_callable);
+            other.m_callable_buf = nullptr;
+        } else {
+            std::swap(m_callable_buf, other.m_callable_buf);
+        }
     }
 
     template<typename FuncObject> requires details::IsSmallFunc<Callable_impl<FuncObject>>
@@ -106,13 +112,20 @@ public:
         return *this;
     }
 
-    auto& operator=(Func other) noexcept {
+    auto& operator=(Func&& other) noexcept {
         reset();
-        other.swap(*this);
+        if (other.is_local_buf()) {
+            std::memmove(&m_local_callable, &other.m_local_callable, details::kSmallFuncOptMaxSize);
+            m_callable_buf = reinterpret_cast<callable_ptr>(m_local_callable);
+            other.m_callable_buf = nullptr;
+        } else {
+            swap(m_callable_buf, other.m_callable_buf);
+        }
 
         return *this;
     }
-
+    
+    // argtypes already contains &&
     RetType operator()(ArgTypes... args) {
         if (is_empty()) {
             throw std::bad_function_call();
@@ -127,19 +140,6 @@ public:
 
     bool is_empty() const noexcept {
         return get_const_callable_ptr() == nullptr;
-    }
-
-    void swap(Func& other) noexcept {
-        // TODO prob its not good idea to do this pattern here cuz of memcpy and 
-        // also move constructor is not so trivial anymore 
-        using std::swap;
-        if (other.is_local_buf()) {
-            std::memmove(&m_local_callable, &other.m_local_callable, details::kSmallFuncOptMaxSize);
-            m_callable_buf = reinterpret_cast<callable_ptr>(m_local_callable);
-            other.m_callable_buf = nullptr;
-        } else {
-            swap(m_callable_buf, other.m_callable_buf);
-        }
     }
 private:
     bool is_local_buf() const noexcept {
@@ -168,7 +168,7 @@ private:
         }
 
         if (is_local_buf()) {
-            m_callable_buf->~Callable_interface();
+            m_callable_buf->~ICallable();
         } else {
             delete m_callable_buf;
         }
@@ -179,7 +179,7 @@ private:
     // maybe better to do with union, 
     // but then u prob need sort of indicator if local buf is used
     std::byte m_local_callable[details::kSmallFuncOptMaxSize];
-    Callable_interface* m_callable_buf{ nullptr };
+    ICallable* m_callable_buf{ nullptr };
 };
 
 
