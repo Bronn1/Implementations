@@ -108,7 +108,6 @@ public:
     void operator=(const Variant<Ts...>& other) {
         auto* this_ptr = static_cast<derived*>(this);
         if (typeIndex == other.activeTypeIndex_) {
-            std::cout << "operrator&=\n";
             new (this_ptr->storage_) T(reinterpret_cast<const T&>(other.storage_));
             this_ptr->activeTypeIndex_ = other.activeTypeIndex_;
         }
